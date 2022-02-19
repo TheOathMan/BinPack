@@ -106,7 +106,7 @@ struct FileWrite{
     std::ofstream os;
     bool flushed=false;
     void open(const char* name,std::ios_base::openmode mode ){ 
-        this->name = name; os.open(name,mode);  ASSERT(!os.good(), "Error while creating: " <<"'" << name << "'");}
+        this->name = name; os.open(name,mode);  ASSERT(!os.good(), "Error while creating: " <<"'" << name << "'. Path may not exist!");}
     void write(const char* dat,size_t s ){ os.write(dat,s); }
     void clear(){ if(!flushed) {os.close(); std::remove(name);} }
     void close(){ flushed=true; os.flush(); os.close();}
@@ -365,16 +365,12 @@ int main(int count, const char* args[]){
     //std::cout << exec("g++ -help") << std::endl; 
     if(count == 1) help();
     
-    int opFlags = op_header;
+    int opFlags = 0;
     std::vector<std::string> files;
     std::vector<std::string> options;
-    std::string outputFile("Resources.h");
-    //FileWrite tempf;
-    //tempf.open("tssf",0);
-    //libWrite.exceptions(std::ios::badbit | std::ios::failbit);
-    //clear = [&](){hrwrite.close();libWrite.close(); std::remove("Resources.h");std::remove("libdata64.a");std::remove("libdata32.a");}; //FIXME:
     LibGen::LibSecs spec;
     size_t totalfsize=0;
+    std::string outputpath;
 
 
     for (size_t i = 1; i < count; i++)
@@ -394,16 +390,22 @@ int main(int count, const char* args[]){
         add(op_lib64,     "l64" ,op_print | op_printn | op_justify | op_hex  | op_bin | op_lib32 | op_header);
         add(op_printn,    "pn"  ,op_print | op_lib32  | op_lib64   | op_header);
         add(op_print,     "p"   ,op_lib32 | op_lib64  | op_printn  | op_header);
+        if(strstr(i.c_str(),"out=")) { const char* p; for(p = i.c_str(); *p!='='; p++){} outputpath = std::string(p+1); continue; }
         ASSERT(true,"option '" << i <<"' doesn't exist" );  
     }
 
+    //default flag
+    if(options.empty()) opFlags = op_header;
+
+    std::string headerf=outputpath+"Resources.h",libf = outputpath+(opFlags & op_lib64 ? "libdata64.a" : "libdata32.a");
+
     //open header file stream
     if(!(opFlags & (op_print | op_printn)))
-        hrwrite.open(outputFile.c_str(),std::ios::out | std::ios::trunc);
+        hrwrite.open(headerf.c_str(),std::ios::out | std::ios::trunc);
 
     //open lib file stream
     if(opFlags & (op_lib64 | op_lib32)){
-        libWrite.open(opFlags & op_lib64 ? "libdata64.a" : "libdata32.a",std::ios::out | std::ios::binary);
+        libWrite.open(libf.c_str(),std::ios::out | std::ios::binary);
         spec = LibGen::GetLibSec(opFlags & op_lib64 ? arc_x64:arc_x86);
         libWrite.write((char*)spec.p1,spec.s1);
     }
@@ -429,7 +431,7 @@ int main(int count, const char* args[]){
             mz_ulong csized = 0;
             void* c_data = nullptr;
             CompressOut(size,data,&c_data,&csized);      
-            printf("\nsize of '%s' file is: %i bytes. compressed size: %i bytes\n\n", i.c_str(), size,csized);
+            printf("\nsize of '%s' file is: %i bytes. compressed size: %i bytes\n", i.c_str(), size,csized);
             
             PackData(opFlags & (op_print | op_printn ) ? std::cout : hrwrite(), c_data, csized, FPathToName(i), opFlags);
             if(opFlags & (op_lib64 | op_lib32))
@@ -437,7 +439,7 @@ int main(int count, const char* args[]){
 
             _FREE(c_data);
         } else {
-            printf("\nsize of '%s' file is: %i bytes \n\n", i.c_str(), size);
+            printf("\nsize of '%s' file is: %i bytes \n", i.c_str(), size);
             PackData(opFlags &  (op_print | op_printn ) ? std::cout : hrwrite(), data, size, FPathToName(i), opFlags);
             if(opFlags & (op_lib64 | op_lib32))
                 libWrite.write((char*)data,size);
@@ -470,6 +472,5 @@ int main(int count, const char* args[]){
     }
 
     hrwrite.close();
-    puts("Success");
-    return 0;
+    exit(EXIT_SUCCESS);
 }

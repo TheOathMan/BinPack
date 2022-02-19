@@ -94,11 +94,12 @@ enum opt_flags : int {
     op_lib64      = 1 << 2,  // output data in a 64 library
     op_print      = 1 << 3,  // output data in te console
     op_printn     = 1 << 4,  // output data natively te console
+    alloutputops  = op_printn | op_print | op_lib64 | op_lib32 | op_header,
     //input options
     op_bin        = 1 << 5,  // data array as binery
     op_hex        = 1 << 6,  // data array as hexadacimal
     op_compressed = 1 << 7,  // compress option (using miniz.h)
-    op_justify    = 1 << 8,  // align data array or apply (justify)
+    op_justify    = 1 << 8  // align data array or apply (justify)
 };
 
 struct FileWrite{
@@ -395,7 +396,7 @@ int main(int count, const char* args[]){
     }
 
     //default flag
-    if(options.empty()) opFlags = op_header;
+    if( !(opFlags & alloutputops) ) opFlags |= op_header;
 
     std::string headerf=outputpath+"Resources.h",libf = outputpath+(opFlags & op_lib64 ? "libdata64.a" : "libdata32.a");
 
@@ -414,6 +415,7 @@ int main(int count, const char* args[]){
 
         void* data=nullptr;
         size_t size=0;
+        mz_ulong csized = 0;
         OpenReadBin(i.c_str(),&data,&size);
         ASSERT(size >= MAX_SIZE, "file: " << i.c_str()  << " size is too big" );
         ASSERT(!data,"no data in: " << i.c_str());
@@ -426,9 +428,9 @@ int main(int count, const char* args[]){
             hrwrite() << "#ifdef INSER_RESOURCES\n";
         }
 
-        totalfsize+=size;
+        
         if(opFlags & op_compressed){
-            mz_ulong csized = 0;
+            
             void* c_data = nullptr;
             CompressOut(size,data,&c_data,&csized);      
             printf("\nsize of '%s' file is: %i bytes. compressed size: %i bytes\n", i.c_str(), size,csized);
@@ -444,7 +446,7 @@ int main(int count, const char* args[]){
             if(opFlags & (op_lib64 | op_lib32))
                 libWrite.write((char*)data,size);
         }
-
+        totalfsize += (opFlags & op_compressed) ? csized : size;
         _FREE(data);
     }
     

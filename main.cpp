@@ -11,6 +11,7 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <functional>
 //#include <stdio.h>
 //#include <process.h>
 //TODO:
@@ -25,9 +26,9 @@ List files that need to be packed as data array.
 Use minus sign (-) to list options. available options are:
 
 *output options
-  -hr  to pack all file data in a header (.h). [default]
-  -l64 to pack all file data in a 64 library file.
-  -l32 to pack all file data in a 32 library file.
+  -hr  to pack all file's data in a header (.h). [default]
+  -l64 to pack all file's data into a 64 library file.
+  -l32 to pack all file's data into a 32 library file.
   -p   output data to the console.
   -pn  output native data to the console.
 
@@ -47,11 +48,13 @@ Use minus sign (-) to list options. available options are:
 }
 
 //  utility
+//void (*clean)();
+std::function<void()> clear;
 #define ASSERT(condition, message) \
     do { \
         if (condition) { \
             std::cerr << message << '\n'; \
-            std::terminate(); \
+            exit(EXIT_FAILURE); \
         } \
     } while (false)
 
@@ -78,22 +81,38 @@ using padSize_t = uint;
 #define PCLOSE(x) _pclose(x)
 #endif
 
+
+
+
 enum {arc_x86,arc_x64}; // libs architecture
 
 enum opt_flags : int {
     op_none       = 0     ,
     //output options
-    op_lib32      = 1 << 0,  // data array as a library
-    op_lib64      = 1 << 7,  // data array as a library
-    op_print      = 1 << 1,  // output data to console
-    op_printn     = 1 << 2,  // output native data instead of creating a header.
+    op_header     = 1 << 0,  // output data as an array in a header file (default)
+    op_lib32      = 1 << 1,  // output data in a 32 library
+    op_lib64      = 1 << 2,  // output data in a 64 library
+    op_print      = 1 << 3,  // output data in te console
+    op_printn     = 1 << 4,  // output data natively te console
     //input options
-    op_bin        = 1 << 3,  // data array as binery
-    op_hex        = 1 << 4,  // data array as hexadacimal
-    op_compressed = 1 << 5,  // compress option (using miniz.h)
-    op_justify    = 1 << 6,  // align data array or apply (justify)
-    op_header                // default
+    op_bin        = 1 << 5,  // data array as binery
+    op_hex        = 1 << 6,  // data array as hexadacimal
+    op_compressed = 1 << 7,  // compress option (using miniz.h)
+    op_justify    = 1 << 8,  // align data array or apply (justify)
 };
+
+struct FileWrite{
+    const char* name;
+    std::ofstream os;
+    bool flushed=false;
+    void open(const char* name,std::ios_base::openmode mode ){ 
+        this->name = name; os.open(name,mode);  ASSERT(!os.good(), "Error while creating: " <<"'" << name << "'");}
+    void write(const char* dat,size_t s ){ os.write(dat,s); }
+    void clear(){ if(!flushed) {os.close(); std::remove(name);} }
+    void close(){ flushed=true; os.flush(); os.close();}
+    std::ofstream& operator()(){ return os; }
+    ~FileWrite(){clear();}
+}hrwrite, libWrite;
 
 namespace LibGen{
     //refer to data in lib
@@ -145,9 +164,9 @@ namespace LibGen{
         0x66,0x83,0x3e,0x0c,0xc7,0x7c,0x57,0x53,0x8f,0x07,0x54,0x21
     };
     int _arc_offset = 0x3;
+    int _od_size = 0x0f;                                 //initial size
     #define lib64_original_size 686
     #define lib32_original_size 690
-    int _od_size = 15;                                 //initial size
     #define S_SIZE_VAL    (521 + LibGen::_od_size)             // string size
     #define S_SIZE_VAL_32 (525 + LibGen::_od_size)             // string size
     #define SYMPOL_VAL    (238 + LibGen::_arc_offset + LibGen::_od_size)
@@ -162,49 +181,8 @@ namespace LibGen{
     #define IN_VAL_32(x,y)  *((uint*)(x + y))
     struct LibSecs{uchar* p1,*p2; size_t s1,s2; void freep(){_FREE(p1);} };
 
-    void DataToLib(const void* data, const size_t size,bool arc = arc_x64){
-        ASSERT(arc>1, "Wrong architecture value" );
-        ASSERT(!size, "Failed to create a library. No data" );
-        ASSERT(size >= MAX_SIZE, "Failed to create a library. The Data is too big!" );
-        int or_size = arc == arc_x64  ? lib64_original_size : lib32_original_size;
-        size_t libsize = or_size + size; // extra size for good measure
-        uchar* uc_lib_templ_data = (uchar*)malloc(libsize);
-        ASSERT(!uc_lib_templ_data, "Failed to create a library. allocation error!" );
-        ulong fsize = or_size;
-        if(arc == arc_x64) { 
-            _arc_offset = 0;
-            mz_uncompress(uc_lib_templ_data, &fsize, com_lib64_template_dat, lib64_original_size);
-        } else 
-        if(arc == arc_x86)
-            mz_uncompress(uc_lib_templ_data, &fsize, com_lib32_template_dat, lib32_original_size);
-
-        memmove(uc_lib_templ_data + TO_DATA + size, uc_lib_templ_data + TO_DATA + _od_size, or_size - TO_DATA - _od_size);    
-        memcpy(uc_lib_templ_data + TO_DATA, data, size);   
-
-        //lib data input
-        _od_size = size;
-        IN_VAL_32(uc_lib_templ_data,TO_SIZE_1) = _od_size;
-        IN_VAL_32(uc_lib_templ_data,TO_SIZE_2) = _od_size;
-        IN_VAL_32(uc_lib_templ_data,TO_SYMPOL_P1) = SYMPOL_VAL;
-        IN_VAL_32(uc_lib_templ_data,TO_SYMPOL_P2) = SYMPOL_VAL;
-
-        char buf[10];
-        if(arc == arc_x64) ITOA(S_SIZE_VAL,buf,10); else ITOA(S_SIZE_VAL_32,buf,10); 
-        memcpy(uc_lib_templ_data+TO_S_SIZE,buf,strlen(buf));
-
-        std::ofstream libdata;
-        libdata.open(arc == arc_x64 ? "_libdata64.a" : "_libdata32.a",std::ios::out | std::ios::binary);
-        libdata.write((char*)uc_lib_templ_data, libsize - 0x0f); // remove default bytes from the writing 
-        libdata.close();
-        _od_size=0x0f;
-        _arc_offset=0x03;
-        _FREE(uc_lib_templ_data); //FIXME:
-    }
-
     LibSecs GetLibSec(bool arc = arc_x64){
-        _od_size=0x0f;
-        _arc_offset=0x03;
-        ASSERT(arc>1, "Wrong architecture value" );
+        ASSERT(arc>1, "Wrong architecture value");
         int or_size = arc == arc_x64  ? lib64_original_size : lib32_original_size;
         uchar* uc_lib_templ_data = (uchar*)malloc(or_size);
         ASSERT(!uc_lib_templ_data, "Failed to create a library. allocation error!" );
@@ -225,7 +203,7 @@ namespace LibGen{
     }
 }
 
-
+void puts(std::ofstream& of,char c, int count){ for(int i =0; i < count; i++){of.put(c);} of.put('\n');  }
 
 static char str_buffer[4*4];
    
@@ -274,7 +252,7 @@ const char* char2dec(uchar c,int opflags){
 void OpenReadBin(const char* file_name, void** outData, size_t* outSize){
     std::ifstream st;
     st.open(file_name,std::ios::in | std::ios::binary);
-    ASSERT((st.rdstate() & std::ifstream::failbit ) != 0 , "Error opening" <<"'" << file_name << "'");
+    ASSERT(!st.good(), "can't open" <<"'" << file_name << "'");
     st.seekg(0,st.end);
     int s = st.tellg();
     ASSERT(!s, "file" << "'" << file_name << "'" << " is empty");
@@ -324,17 +302,17 @@ std::string FPathToName(std::string path){
     return sn;
 }
 
-//const unsigned char name[100] = {};
+//const unsigned char name[100] = {}; //
 template <typename T> 
 void PackData(T& ofs, void* data, const padSize_t& size, std::string&& name,int op_flags){
     
-    static int PrevSize=0;
+    static int PrevSize=0,calls=0;
     if(op_flags & (op_lib64 | op_lib32) ){
         if(!PrevSize)
-            ofs << R"(extern "C" char const*  __LIB_DATA__();)" << '\n'; 
+            ofs << R"(extern "C" char const*  __LIB_DATA__();)" << "\n\n"; 
         ofs << "#define "<< name << "_size" << " " << size <<"\n"; 
         
-        ofs << "#define "<< "_"<< name << "_data" << " &(__LIB_DATA__()[" << PrevSize <<"])" <<"\n"; 
+        ofs << "#define "<< "_"<< name << "_data" << " &(__LIB_DATA__()[" << PrevSize <<"])" <<"\n\n"; 
         PrevSize = size;
         //LibGen::DataToLib(data,size,op_flags & op_lib64 ? arc_x64 : arc_x86); 
         return;
@@ -344,9 +322,15 @@ void PackData(T& ofs, void* data, const padSize_t& size, std::string&& name,int 
     bool is_bin     = op_flags & op_bin;
     bool is_justify = op_flags & op_justify;
 
-    if(!(op_flags & (op_print | op_printn ) ))
-        ofs << "const unsigned char CM_" << name << "[" << std::to_string(size) << "] " << "= { \n";
+    if(!(op_flags & (op_print | op_printn ) )){    
+        auto pos = ofs.tellp();
+        ofs.seekp(ofs.beg + calls*101 ); 
+        ofs << "const unsigned char CM_"<< name << "[" << std::to_string(size) << "];";
+        ofs.seekp(pos);
 
+        ofs << "const unsigned char CM_" << name << "[" << std::to_string(size) << "] " << "= { \n";
+    
+    }
     for (size_t i = 0; i < size; i++)
     {
         int value = ((uchar*)data)[i];
@@ -358,7 +342,7 @@ void PackData(T& ofs, void* data, const padSize_t& size, std::string&& name,int 
             ofs << (!(op_flags & op_printn) ? "," : " ") << (( ((i+1) % (is_hex ? 8*2 : is_bin ? 10 : 30)) == 0) ? "\n" : "" );
         else if(!(op_flags & (op_print | op_printn ))) ofs << "}; \n\n";
         else ofs << '\n';
-    }
+    }calls++;
 }
 
 // Ignore previous conflicting options 
@@ -371,21 +355,27 @@ void IgnoreFlags(const char* s,int& opflag, int conflicting_flags)
         }
     };
     put("l32",op_lib32); put("l64",op_lib64);   put("p",op_print);     put("pn",op_printn);
-    put("j",op_justify); put("bn",op_bin);      put("hx",op_hex); 
+    put("j",op_justify); put("bn",op_bin);      put("hx",op_hex);      put("hr",op_header); 
 }
+
+
+
 int main(int count, const char* args[]){
 
     //std::cout << exec("g++ -help") << std::endl; 
     if(count == 1) help();
     
-    int opFlags=0;
+    int opFlags = op_header;
     std::vector<std::string> files;
     std::vector<std::string> options;
     std::string outputFile("Resources.h");
-    std::ofstream hrwrite; // header stream
-    std::ofstream libWrite;// lib stream
+    //FileWrite tempf;
+    //tempf.open("tssf",0);
+    //libWrite.exceptions(std::ios::badbit | std::ios::failbit);
+    //clear = [&](){hrwrite.close();libWrite.close(); std::remove("Resources.h");std::remove("libdata64.a");std::remove("libdata32.a");}; //FIXME:
     LibGen::LibSecs spec;
     size_t totalfsize=0;
+
 
     for (size_t i = 1; i < count; i++)
     {
@@ -394,26 +384,24 @@ int main(int count, const char* args[]){
     }
     for(auto && i: options){
         STRWR(&i[0]);   
-        #define add(option,ignore_flags,this_flag) if(strstr(i.c_str(),option))   {IgnoreFlags(option,opFlags,ignore_flags ); opFlags |= this_flag;continue;} 
-        add("hr"  ,op_lib32 | op_lib64 | op_print   | op_printn,0);
-        add("hx"  ,op_bin   | op_lib32 | op_lib64,op_hex);
-        add("bn"  ,op_hex   | op_lib32 | op_lib64,op_bin);
-        add("j"   ,op_lib32 | op_lib64,op_justify );
-        add("c",0 ,op_compressed);
-        add("l32" ,op_print | op_printn | op_justify | op_hex  | op_bin | op_lib64,op_lib32);
-        add("l64" ,op_print | op_printn | op_justify | op_hex  | op_bin | op_lib32,op_lib64);
-        add("pn"  ,op_print | op_lib32  | op_lib64,op_printn);
-        add("p"   ,op_lib32 | op_lib64  | op_printn,op_print);
-        ASSERT(true,"option '" << i <<"' doesn't exist" );
+        #define add(this_flag,option,ignore_flags) if(strstr(i.c_str(),option))   {IgnoreFlags(option,opFlags,ignore_flags ); opFlags |= this_flag;continue;} 
+        add(op_header,    "hr"  ,op_lib32 | op_lib64 | op_print   | op_printn);
+        add(op_hex,       "hx"  ,op_bin   | op_lib32 | op_lib64);
+        add(op_bin,       "bn"  ,op_hex   | op_lib32 | op_lib64);
+        add(op_justify,   "j"   ,op_lib32 | op_lib64);
+        add(op_compressed,"c",0 );
+        add(op_lib32,     "l32" ,op_print | op_printn | op_justify | op_hex  | op_bin | op_lib64 | op_header);
+        add(op_lib64,     "l64" ,op_print | op_printn | op_justify | op_hex  | op_bin | op_lib32 | op_header);
+        add(op_printn,    "pn"  ,op_print | op_lib32  | op_lib64   | op_header);
+        add(op_print,     "p"   ,op_lib32 | op_lib64  | op_printn  | op_header);
+        ASSERT(true,"option '" << i <<"' doesn't exist" );  
     }
-    if(!(opFlags & (op_print | op_printn))){
 
+    //open header file stream
+    if(!(opFlags & (op_print | op_printn)))
         hrwrite.open(outputFile.c_str(),std::ios::out | std::ios::trunc);
-        for (auto&& i: files){ //FIXME:
-            
-        }
-    }
 
+    //open lib file stream
     if(opFlags & (op_lib64 | op_lib32)){
         libWrite.open(opFlags & op_lib64 ? "libdata64.a" : "libdata32.a",std::ios::out | std::ios::binary);
         spec = LibGen::GetLibSec(opFlags & op_lib64 ? arc_x64:arc_x86);
@@ -427,33 +415,46 @@ int main(int count, const char* args[]){
         OpenReadBin(i.c_str(),&data,&size);
         ASSERT(size >= MAX_SIZE, "file: " << i.c_str()  << " size is too big" );
         ASSERT(!data,"no data in: " << i.c_str());
+
+
+        //start header file by reserve/define
+        if(!totalfsize && (opFlags & op_header)) {
+            for(auto&& n: files) puts(hrwrite(),' ', 100);
+            puts(hrwrite(),' ', 100); puts(hrwrite(),' ', 100);
+            hrwrite() << "#ifdef INSER_RESOURCES\n";
+        }
+
         totalfsize+=size;
         if(opFlags & op_compressed){
             mz_ulong csized = 0;
             void* c_data = nullptr;
             CompressOut(size,data,&c_data,&csized);      
-            printf("size of '%s' file is: %i bytes. compressed size: %i bytes\n", FPathToName(i).c_str(), size,csized);
+            printf("\nsize of '%s' file is: %i bytes. compressed size: %i bytes\n\n", i.c_str(), size,csized);
             
-            PackData(opFlags & (op_print | op_printn ) ? std::cout : hrwrite, c_data, csized, FPathToName(i), opFlags);
+            PackData(opFlags & (op_print | op_printn ) ? std::cout : hrwrite(), c_data, csized, FPathToName(i), opFlags);
             if(opFlags & (op_lib64 | op_lib32))
                 libWrite.write((char*)c_data,csized);
 
             _FREE(c_data);
         } else {
-            printf("size of '%s' file is: %i bytes \n", FPathToName(i).c_str(), size);
-            PackData(opFlags &  (op_print | op_printn ) ? std::cout : hrwrite, data, size, FPathToName(i), opFlags);
+            printf("\nsize of '%s' file is: %i bytes \n\n", i.c_str(), size);
+            PackData(opFlags &  (op_print | op_printn ) ? std::cout : hrwrite(), data, size, FPathToName(i), opFlags);
             if(opFlags & (op_lib64 | op_lib32))
                 libWrite.write((char*)data,size);
         }
 
         _FREE(data);
     }
-    hrwrite.close();
     
+    // close header
+    if(opFlags & op_header) 
+        hrwrite() << "\n#endif // INSER_RESOURCES";
+    
+
     //libgen close();
     if(opFlags & (op_lib64 | op_lib32)){
         libWrite.write((char*)spec.p2,spec.s2);
-        #define F_PTR(seek,d,size) libWrite.seekp(libWrite.beg + seek); libWrite.write(((char*)(d)),size );
+        #define F_PTR(seek,d,size) libWrite().seekp(libWrite().beg + seek); libWrite().write(((char*)(d)),size );
         LibGen::_od_size = totalfsize;
         size_t symv = SYMPOL_VAL;
         F_PTR(TO_SIZE_1,&LibGen::_od_size,sizeof(uint));
@@ -468,17 +469,7 @@ int main(int count, const char* args[]){
         spec.freep();
     }
 
+    hrwrite.close();
     puts("Success");
     return 0;
 }
-
-
-
-
-// Decompressoin
-//mz_ulong ucsized = 0;
-//void* uc_data = nullptr;
-//DecompressOut(c_data,&uc_data,&ucsized);
-//printf("size of '%s' file is: %i bytes. uncompressed size: %i bytes\n", FPathToName(i).c_str(), size,ucsized);
-//std::cout << (char*)uc_data << std::endl;
-//_FREE(uc_data);

@@ -323,22 +323,6 @@ struct OpenRBin{
     void freedat(){ _FREE(m_data); }
 };
 
-// functions
-void OpenReadBin(const char* file_name, void** outData, size_t* outSize){
-    std::ifstream st;
-    st.open(file_name,std::ios::in | std::ios::binary);
-    ASSERT(!st.good(), "Coudn't open " <<"'" << file_name << "'");
-    st.seekg(0,st.end);
-    int s = st.tellg();
-    ASSERT(!s, "File" << "'" << file_name << "'" << " is empty");
-    st.seekg(st.beg);
-    *outData = malloc(s);
-    st.read((char*)*outData,s);
-    *outSize = s;
-    auto a = 0xef;
-    st.close(); 
-}
-
 template <typename T> 
 void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int op_flags,int jv=0){
     ASSERT(name.length()>65, "Upnormal file name length" ); //? limit the number of chars in name
@@ -449,7 +433,7 @@ int main(int count, const char* args[]){
 
         ASSERT(true,"Option '" << i.cmd <<"' doesn't exist" );  
     }
-    if(files.empty()) ASSERT(true,"Coudn't find a file. Make sure the order is valid" );   //! cull out when doing cmf, ucf
+    if(files.empty()) ASSERT(true,"Coudn't find a file. Make sure the order is valid" );   
 
     //default flag
     if( !(opFlags & op_writeops) ) opFlags |= op_header;
@@ -477,32 +461,24 @@ int main(int count, const char* args[]){
 
     for (auto&& i: files){
 
-        void* data=nullptr;
-        size_t size=0;
         ComProc cp;
-        //mz_ulong csized = 0;
-        OpenReadBin(i,&data,&size);
-        ASSERT(size >= MAX_SIZE, " Size of file: " << i  << " is too big" );
-        ASSERT(!data,"No data in: " << i);
+        OpenRBin bn(i);
+        ASSERT(bn.m_size >= MAX_SIZE, " Size of file: " << i  << " is too big" );
+        ASSERT(!bn.m_data,"No data in: " << i);
       
         if(opFlags & op_compressed){
-            
-            //void* c_data = nullptr;
-            cp.CompressOut(size,data);    
-            
-           // std::ofstream st; st.open("testing.tt",std::ios::binary | std::ios::out); st.write((char*)cp.m_data,cp.m_size);
-            
+            cp.CompressOut(bn.m_size,bn.m_data);                
             printf("%u",cp.m_size);
-            printf("\nsize of '%s' file is: %i bytes. compressed size: %i bytes\n", i, size,cp.m_size);        
+            printf("\nsize of '%s' file is: %i bytes. compressed size: %i bytes\n", i, bn.m_size,cp.m_size);        
             PackData(opFlags & op_prints? std::cout : hrwrite(), cp.m_data, cp.m_size, strfn(i), opFlags,justifyval);
 
            // _FREE(c_data);
         } else {
-            printf("\nsize of '%s' file is: %i bytes \n", i, size);
-            PackData(opFlags & op_prints ? std::cout : hrwrite(), data, size, strfn(i), opFlags,justifyval);
+            printf("\nsize of '%s' file is: %i bytes \n", i, bn.m_size);
+            PackData(opFlags & op_prints ? std::cout : hrwrite(), bn.m_data, bn.m_size, strfn(i), opFlags,justifyval);
         }
-        totalfsize += (opFlags & op_compressed) ? cp.m_size : size;
-        _FREE(data);
+        totalfsize += (opFlags & op_compressed) ? cp.m_size : bn.m_size;
+        bn.freedat();
     }
     
     // close header

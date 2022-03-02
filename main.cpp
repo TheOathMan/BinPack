@@ -1,7 +1,5 @@
-//
-// BinPack
-//
-//
+/* BinPack.cpp v 1.101 - public domain. Write data of files into a header file, static lib or as a console output.
+*/
 #if defined(_WIN32) 
 #define _CRT_SECURE_NO_WARNINGS 1
 #endif
@@ -12,43 +10,41 @@
 #include <vector>
 #include <string>
 
-
-//#include <stdio.h>
-//#include <process.h>
-//TODO -----------------
-//*--------------------------
-// ? Do i need this ?
-// create a away to imser input
-// output two lib format (.a .lib)
-// 
-
-void help(){
+void howto(){
     const std::string help = R"( 
-List files that need to be packed as data array. 
-Use minus sign (-) to list options. available options are: 
+List files that need to be packed as data array or static libray. 
+Use minus sign (-) to list options, and equal sign (=) for edit options. 
+Available options are: 
 
-*Write options
-  -hr  to pack all provided file's data in a header (.h). [default]
-  -l64 to pack all provided file's data into a 64 bit library file.
-  -l32 to pack all provided file's data into a 32 bit library file.
-  -p   output data to the console.
-  -pn  output data to the console natively.
+--Write Options:
+  -hr   To pack all the data of provided files into a header file (.h). [default]
+  -l    To pack all the data of provided files into a 64 bit library.
+  -l64  To pack all the data of provided files into a 64 bit library.
+  -l32  To pack all the data of provided files into a 32 bit library.
+  -p    Output data to the console.
+  -pn   Output native data to the console.
 
-  =out  <FOLDER> write output to a specific folder path. Example: =out C:\Users\Desktop 
-  =jl   <NUMBER> Edit the justify level. Example: =jv 2 
-  =cmf  <FILE> compress a file
-  =ucf  <FILE> decompress a file
+--Edit Options:
+  =out  <FOLDER> write the output to a folder. Example: =out C:\Users\Desktop 
+  =jl   <NUMBER> Edit the justify level. Example: =jl 2 
+  =cmf  <FILE> compress a file.
+  =ucf  <FILE> decompress a file.
 
-*Mode options
-  -bn   to produce data array as binary literals.
-  -hx   to produce data array as hexadecimal literals.
-  -j    to align data array or apply a (justify).
-  -c    to compress the data before converting it to data array (using miniz.h)
-          IMPORTANT: the size of the compressed file is stored as the first string. 
-          so Compressed_data + strlen(Compressed_data) + 1 = the start of the compressed Data.  
+--Mode Options:
+  -hx   Convert data to hexadecimal literals.
+  -bn   Convert data to binary literals.
+  -j    To align the data or justify all lines.
+  -c    To compress the data. (see sorce code for more details on how to decompress)
 
 *Options are not casae sensetive. 
 *Files and options can be listed at any order. 
+*Edit Options and their values must be seperated by a space as in [EDIT OPTION] [VALUE].    
+
+EXAMPLE:
+> text.txt -j -hx -p
+This command will prin the data of 'text.txt' into the console(-p) in the form of hexadecimal(-hx),
+ and justify(-j) will be applied to the test.
+
 )";
     std::cout << help << '\n'; 
     exit(EXIT_SUCCESS);
@@ -74,8 +70,10 @@ using RSTR = const char*;
 #define _FREE(x)        ( free(x))
 #define DR_2_C_P(x)     ((char*)(*x))
 #define DR_2_UC_P(x)    ((uchar*)(*x))
-#define NO_FILE_OUT if(files.empty())exit(EXIT_SUCCESS)
-#define BIN_WRITE(f,s) f.open(s, std::ios::out | std::ios::binary)
+//#define NO_FILE_OUT if(files.empty())exit(EXIT_SUCCESS)
+#define BIN_WRITE std::ios::out | std::ios::binary
+#define TXT_WRITE std::ios::out | std::ios::trunc
+#define BIN_READ  std::ios::in | std::ios::binary
 
 
 #if  defined(__MINGW64__) || defined(__GNUC__)
@@ -92,7 +90,7 @@ using RSTR = const char*;
 
 enum {arc_x86,arc_x64}; // libs architecture
 
-enum opt_flags : int {
+enum opt_flags : uint {
     op_none       = 0     ,
 
     op_header     = 1 << 0,  // write data as an array into a header file (default).
@@ -111,15 +109,16 @@ enum opt_flags : int {
     op_mods       = op_bin | op_hex | op_justify,
 
     op_out        = 1 << 9,  // output path to write to.
-    op_jl         = 1 << 10, // edit justify level.
+    op_jl         = 1 << 10, 
+    op_fcompress  = 1 << 11, 
+    op_funcompress = 1 << 12  
 };
-
 
 struct ComProc{
     void* m_data;
     ulong m_size;
-    int CompressOut(padSize_t dsize, void* data, std::string name = " " ){ 
-        printf(" %s \n", name.c_str());
+    ComProc(){}
+    ComProc(padSize_t dsize, void* data, std::string name = " "){
         ASSERT(!dsize, "No initial size!");
         m_size = mz_compressBound(dsize);
         std::string s_size(std::to_string(dsize));
@@ -130,8 +129,8 @@ struct ComProc{
 
         int e = mz_compress((uchar*)(m_data) + extra_size ,&m_size,(uchar*)data,dsize);
         m_size += extra_size;
-        ASSERT(e || dsize < 20 ,"Coudn't compress this file. Size might be too small. ECOD: " << e);
-        return e;
+        ASSERT(e || dsize < 20 ,"Coudn't compress this file. Size might be too small. ERROR CODE: " << e);
+
     }
     void freedat(){_FREE(m_data);} 
 };
@@ -140,31 +139,71 @@ struct DcomProc{
     void* m_data=nullptr; 
     mz_ulong m_size=0; 
     RSTR name; 
-    void Decompress(void* Comdata){ 
+    DcomProc(void* Comdata){
         sscanf((char*)Comdata, "%d", &m_size);
         name = (char*)Comdata + strlen((char*)Comdata) +1;
         int to_data = strlen(name) + strlen((char*)Comdata) + 2;
         padSize_t fullsize = m_size;
         m_data = (uchar*)malloc(m_size);
         int e = mz_uncompress((uchar*)(m_data), &m_size, (uchar*)Comdata + to_data , fullsize);
-        ASSERT(e,"Coudn't decompress this file. Wrong format or corrupted file. ECOD: " << e);
+        ASSERT(e,"Coudn't decompress this file. Wrong format or corrupted file. ERROR CODE: " << e);
     }
     void freedat(){_FREE(m_data);} 
 };
 
-
 struct FileWrite{
-    const char* name;
+    const char* path;
     std::ofstream os;
+    size_t m_size;
     bool flushed=false;
-    void open(const char* name,std::ios_base::openmode mode ){ 
-        this->name = name; os.open(name,mode);  ASSERT(!os.good(), "Coudn't create: " <<"'" << name << "'. Path may not exist!");}
-    void write(const char* dat,size_t s ){ os.write(dat,s); }
-    void clear(){ if(!flushed) {os.close(); std::remove(name);} }
-    void close(){ flushed=true; os.flush(); os.close();}
+    void * m_data;
+    std::ios_base::openmode Mode;
+    FileWrite(){};
+    FileWrite(const char* name,std::ios_base::openmode mode){init(name,mode);};
+    void open(const char* name,std::ios_base::openmode mode ){ init(name,mode);}
+    void write(const char* dat,size_t s ){ os.write(dat,s); m_data = (void*)dat; m_size=s; }
+    void clear(){ if(os.is_open()) os.close(); if(!flushed) {  if(path) printf("cleaning unflushed resources '%s'\n",path); std::remove(path);} }
+    void close( void(*OnClean)() = nullptr ){ flushed=true;  os.flush(); os.close();  if(OnClean) OnClean();}
+    void writefb( std::filebuf* fb){ os << fb;flushed=true; }
     std::ofstream& operator()(){ return os; }
     ~FileWrite(){clear();}
+    private:
+    void init(const char* name,std::ios_base::openmode mode){
+        this->path = name; 
+        os.open(name,mode);  
+        ASSERT(!os.good(), "Coudn't create: " <<"'" << name << "'. Path may not exist!");
+    }
 }hrwrite, libWrite;
+
+struct FileRead{
+    void* m_data;
+    size_t m_size;
+    RSTR m_fnmae;
+    std::ifstream st;
+    std::ios_base::openmode m_mode;
+    FileRead() : m_data(nullptr) {}
+    FileRead& operator=(const FileRead& rhs) { m_fnmae=rhs.m_fnmae; m_mode = rhs.m_mode;  init(m_fnmae,m_mode); return *this;  }
+    FileRead(RSTR fname,std::ios_base::openmode mode): m_fnmae(fname),m_mode(mode){init(m_fnmae,mode);}
+    void init(RSTR fname,std::ios_base::openmode mode){
+        if(st.is_open()) st.close();
+        st.open(fname,mode);
+        ASSERT(!st.good(), "Coudn't open " <<"'" << fname << "'");
+        st.seekg(0,st.end);
+        int s = st.tellg();
+        ASSERT(!s, "File" << "'" << fname << "'" << " is empty");
+        st.seekg(st.beg);
+        m_data = malloc(s);
+        st.read((char*)m_data,s);
+        m_size = s;
+        st.seekg(st.beg);
+    }
+    std::ifstream& operator()(){ return st; }
+    ~FileRead() { if(st.is_open()) st.close(); }
+    void freedat(){ _FREE(m_data); }
+}frd,tocom,toucm;
+
+
+
 
 namespace LibGen{
     // compressed .lib template binary (arc_x64) 
@@ -254,11 +293,18 @@ namespace LibGen{
 
 void puts(std::ofstream& of,char c, int count){ for(int i =0; i < count; i++){of.put(c);} of.put('\n');  }
 bool _striseq(RSTR s1,RSTR s2){ for(;*s1;) if(tolower(*s1++)!=tolower(*s2++)) return false;  return *s1 == *s2;  }
-int striseq(RSTR s1,RSTR s2){ for(;*s1;) if((*s1++|32)!=(*s2++|32)) return 0; return *s1 == *s2;}
+int striseq(RSTR s1,RSTR s2){ for(;*s1;) if((*s1++|32)!=(*s2++|32)) return 0; return *s1 == *s2;} // compre strings not case senstive
 int strrep(char* t,char cr,char rp) { int rep=0; for(;strchr(t,cr);) {++rep; char* p = strchr(t,cr); *p = rp;} return rep;  } 
 RSTR strffn(RSTR str, char extra = '/'){ RSTR p; for(p = str + strlen(str);  p >= str && *p != extra && *p != '/' && *p != '\\'; p-- ){}return p+1;} // get file name from path with extentions
 RSTR strfn(char* fn){char* ps = strrchr(fn,'.'); *ps = '\0'; return strffn(fn);} // get file name from path
 std::string& strfn(RSTR fn){ static std::string sn; sn.clear(); sn = std::string(strffn(fn) ); sn.erase(sn.find_last_of('.')); return sn;} // get file name from path
+
+void copy_file(const std::string& source,const std::string& target)
+{
+    FileRead  fr(source.c_str(), BIN_READ);
+    FileWrite fw(target.c_str(), BIN_WRITE);
+    fw.writefb(fr().rdbuf());
+}
 
 static char str_buffer[4*4];
    
@@ -301,27 +347,6 @@ const char* char2dec(uchar c,int opflags){
     
     return str_buffer; 
 }
-
-struct OpenRBin{
-    void* m_data;
-    size_t m_size;
-    RSTR m_fnmae;
-    OpenRBin(RSTR fname): m_fnmae(fname){
-        std::ifstream st;
-        st.open(fname,std::ios::in | std::ios::binary);
-        ASSERT(!st.good(), "Coudn't open " <<"'" << fname << "'");
-        st.seekg(0,st.end);
-        int s = st.tellg();
-        ASSERT(!s, "File" << "'" << fname << "'" << " is empty");
-        st.seekg(st.beg);
-        m_data = malloc(s);
-        st.read((char*)m_data,s);
-        m_size = s;
-        auto a = 0xef;
-        st.close(); 
-    }
-    void freedat(){ _FREE(m_data); }
-};
 
 template <typename T> 
 void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int op_flags,int jv=0){
@@ -369,7 +394,7 @@ void IgnoreFlags(RSTR s,int& opflag, int conflicting_flags)
 {
     auto xclude = [&](RSTR c,int f){    
         if(conflicting_flags & f && f & opflag){
-            std::cout << "Optoin " << c <<" was ignored because it conflicts with option '" << s << "'\n";
+            std::cout << "Optoin '" << c <<"' was ignored because it conflicts with option '" << s << "'\n";
             opflag = opflag ^ f;
         }
     };
@@ -377,42 +402,43 @@ void IgnoreFlags(RSTR s,int& opflag, int conflicting_flags)
     xclude("j",op_justify); xclude("bn",op_bin);    xclude("hx",op_hex);  xclude("hr",op_header); 
 }
 
+int opFlags = 0;
+using StrPair=std::pair<std::string,std::string>;
+std::vector<RSTR> files;
+struct STRVAL{RSTR cmd,val;};
+std::vector<STRVAL> options;
+LibGen::LibSecs spec;
+size_t totalfsize=0;
+std::string outputpath;
+int justifyval=0;
 
+void OnLibClose(){ 
+    if(opFlags&op_lib32) 
+        copy_file(outputpath+"libdata32.a",outputpath+"data32.lib");
+    if(opFlags&op_lib64) 
+        copy_file(outputpath+"libdata64.a",outputpath+"data64.lib");
+}
 
 int main(int count, const char* args[]){
-    void* dat = nullptr, *cdat=nullptr;
-    // size_t sz=0; ulong sz2=0;
-    // OpenReadBin("testing.tt",&dat,&sz);
-
-    // _DecompressOut(dat,&cdat,&sz2);
-    // printf("%i \n",sz2);
-    // printf("%s \n",(char*)cdat);
-    // std::ofstream st; st.open("OUT__testing.txt",std::ios::binary | std::ios::out); st.write((char*)cdat,sz2); st.close(); //! stream need to be close..
-
-    if(count == 1) help();
+    if(count == 1) howto();
     
-    int opFlags = 0;
-    using StrPair=std::pair<std::string,std::string>;
-    std::vector<RSTR> files;
-    struct STRVAL{RSTR cmd,val;};
-    std::vector<STRVAL> options;
-    LibGen::LibSecs spec;
-    size_t totalfsize=0;
-    std::string outputpath;
-    int justifyval=0;
-
 
     for (size_t i = 1; i < count; i++)
     {
         if(args[i][0] == '-') options.push_back( {args[i],""}); else
         if(args[i][0] == '='){
+            ///static bool pushDir;
             ASSERT(i+1 == count,"Empty edit field");
             RSTR p1=args[i],p2=args[++i];
-            ASSERT(p2[0] == '-' && (p1[1]!='j'),"Option "<< p2 << " can't be used as a field for this Edit option");   
-            options.push_back({p1,p2}); } 
+            if(striseq(p1, "=out")) 
+                options.insert(options.begin(), {p1,p2}); 
+            else 
+                options.push_back({p1,p2}); 
+        } 
         else files.push_back(args[i]); 
 
     }
+    
     for(auto && i: options){ 
         RSTR c = i.cmd, v = i.val;
         auto add = [&](int this_flag, RSTR op_str,int ignore_flags) {if(striseq(c+1,op_str))   { IgnoreFlags(c,opFlags,ignore_flags ); opFlags |= this_flag; return true;}else return false;}; 
@@ -423,31 +449,56 @@ int main(int count, const char* args[]){
         if(add(op_compressed,"c"   ,op_none)){continue;}
         if(add(op_lib32,     "l32" ,op_print | op_printn | op_justify | op_hex  | op_bin | op_lib64 | op_header)){continue;}
         if(add(op_lib64,     "l64" ,op_print | op_printn | op_justify | op_hex  | op_bin | op_lib32 | op_header)){continue;}
+
         if(add(op_printn,    "pn"  ,op_print | op_lib32  | op_lib64   | op_out  | op_header)){continue;}
         if(add(op_print,     "p"   ,op_lib32 | op_lib64  | op_printn  | op_out  | op_header)){continue;}
         //edit options
         if(add(op_out,       "out" ,op_prints)){ outputpath = std::string(v).append("\\"); continue;}
         if(add(op_jl,        "jl"  ,op_none)){if(!sscanf(v, "%i", &justifyval)) ASSERT(true,"Number expected for editing justify level" );  continue;}
-        if(add(op_jl,        "cmf"  ,op_none)){ OpenRBin ob(v); ComProc cp; cp.CompressOut(ob.m_size,ob.m_data,strffn(v)); std::ofstream ostr; BIN_WRITE(ostr,std::string(outputpath)+strfn(v).append(".cm"));  ostr.write((RSTR)cp.m_data,cp.m_size);ostr.close();cp.freedat();ob.freedat(); NO_FILE_OUT; else continue;}
-        if(add(op_jl,        "ucf"  ,op_none)){ OpenRBin ob(v); DcomProc dcp; dcp.Decompress(ob.m_data); std::ofstream ostr; BIN_WRITE(ostr,std::string(outputpath).append(dcp.name)); ostr.write((char*)dcp.m_data,dcp.m_size);ostr.close();  dcp.freedat(); ob.freedat(); NO_FILE_OUT; else continue;}
+
+        if(add(op_fcompress,  "cmf" ,op_none)){ 
+            tocom = FileRead(v,BIN_READ);   
+            ComProc cp(tocom.m_size,tocom.m_data,strffn(v));
+            std::string temop = outputpath;
+            FileWrite fw(temop.append(strfn(v)).append(".cm").c_str(),BIN_WRITE);
+            fw.write((RSTR)cp.m_data,cp.m_size);
+            fw.close(); cp.freedat(); tocom.freedat();
+            printf("File Compressed at: %s", temop.c_str());
+            continue;
+        }
+        if(add(op_funcompress,"ucf" ,op_none)){ 
+            toucm = FileRead(v,BIN_READ); 
+            DcomProc dcp(toucm.m_data);
+            std::string temop = outputpath;
+            FileWrite fw(temop.append(dcp.name).c_str(),BIN_WRITE);
+            fw.write((RSTR)dcp.m_data,dcp.m_size);
+            fw.close(); dcp.freedat(); tocom.freedat();
+            printf("File Decompressed at: %s", temop.c_str());
+            continue;
+        }
 
         ASSERT(true,"Option '" << i.cmd <<"' doesn't exist" );  
     }
-    if(files.empty()) ASSERT(true,"Coudn't find a file. Make sure the order is valid" );   
+    
+    if( files.empty() && opFlags & (op_funcompress | op_fcompress | op_out) )
+        exit(EXIT_SUCCESS); 
+    
+
+    if(files.empty()) ASSERT(true,"Coudn't find a file. Make sure the order is valid" ); //! should be bypassed in a single file com proc
 
     //default flag
     if( !(opFlags & op_writeops) ) opFlags |= op_header;
 
-    if(!(opFlags&op_out))outputpath.clear();
-    std::string headerf=outputpath+"Resources.h", libf = outputpath+(opFlags & op_lib64 ? "libdata64.a" : "libdata32.a");
+    //if(!(opFlags&op_out))outputpath.clear();
 
+    std::string headerf=outputpath+"Resources.h", libf = outputpath+(opFlags & op_lib64 ? "libdata64.a" : "libdata32.a");
     //open header file stream
     if(!(opFlags & op_prints))
-        hrwrite.open(headerf.c_str(),std::ios::out | std::ios::trunc);
+        hrwrite.open(headerf.c_str(),TXT_WRITE);
 
     //open lib file stream
     if(opFlags & op_libs){
-        libWrite.open(libf.c_str(),std::ios::out | std::ios::binary);
+        libWrite.open(libf.c_str(),BIN_READ);
         spec = LibGen::GetLibSec(opFlags & op_lib64 ? arc_x64:arc_x86);
         libWrite.write((char*)spec.p1,spec.s1);
     }
@@ -462,30 +513,27 @@ int main(int count, const char* args[]){
     for (auto&& i: files){
 
         ComProc cp;
-        OpenRBin bn(i);
-        ASSERT(bn.m_size >= MAX_SIZE, " Size of file: " << i  << " is too big" );
-        ASSERT(!bn.m_data,"No data in: " << i);
+        frd =  FileRead(i,BIN_READ);
+        ASSERT(frd.m_size >= MAX_SIZE, " Size of file: " << i  << " is too big" );
+        ASSERT(!frd.m_data,"No data in: " << i);
       
         if(opFlags & op_compressed){
-            cp.CompressOut(bn.m_size,bn.m_data);                
+            cp = ComProc(frd.m_size,frd.m_data);                
             printf("%u",cp.m_size);
-            printf("\nsize of '%s' file is: %i bytes. compressed size: %i bytes\n", i, bn.m_size,cp.m_size);        
             PackData(opFlags & op_prints? std::cout : hrwrite(), cp.m_data, cp.m_size, strfn(i), opFlags,justifyval);
-
-           // _FREE(c_data);
+            printf("\nsize of '%s' file is: %i bytes. compressed size: %i bytes\n", i, frd.m_size,cp.m_size);        
         } else {
-            printf("\nsize of '%s' file is: %i bytes \n", i, bn.m_size);
-            PackData(opFlags & op_prints ? std::cout : hrwrite(), bn.m_data, bn.m_size, strfn(i), opFlags,justifyval);
+            PackData(opFlags & op_prints ? std::cout : hrwrite(), frd.m_data, frd.m_size, strfn(i), opFlags,justifyval);
+            printf("\nsize of '%s' file is: %i bytes \n", i, frd.m_size);
         }
-        totalfsize += (opFlags & op_compressed) ? cp.m_size : bn.m_size;
-        bn.freedat();
+        totalfsize += (opFlags & op_compressed) ? cp.m_size : frd.m_size;
+        frd.freedat();
     }
     
     // close header
     if(opFlags & op_header) 
         hrwrite() << "\n#endif // BP_INSER_RESOURCES"; 
     
-
     //end libgen process 
     if(opFlags & op_libs){
         libWrite.write((char*)spec.p2,spec.s2);
@@ -499,7 +547,7 @@ int main(int count, const char* args[]){
         char buf[10];
         ITOA(opFlags & op_lib64 ? S_SIZE_VAL:S_SIZE_VAL_32,buf,10); 
         F_PTR(TO_S_SIZE,buf,strlen(buf));
-        libWrite.close();
+        libWrite.close(OnLibClose);
         spec.freep();
     }
     hrwrite.close();

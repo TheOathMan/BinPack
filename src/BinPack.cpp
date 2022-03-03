@@ -12,9 +12,8 @@
 
 void howto(){
     const std::string help = R"( 
-List files that need to be packed as data array or static libray. 
-Use minus sign (-) to list options, and equal sign (=) for edit options. 
-Available options are: 
+List files that need to be packed as data array in a single header file or as a static libray.
+Use minus sign (-) to list options, and equal sign (=) for edit options. Available options are:
 
 --Write Options:
   -hr   To pack all the data of provided files into a header file (.h). [default]

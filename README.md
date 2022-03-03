@@ -1,10 +1,10 @@
 # BinPack
 BinPack is a command line tool for C and C++ to statically pack binary data into a header file, a library file or to output the binary content of a file to the console.
 
-# Releases
-[BinPack v1.01](https://github.com/TheOathMan/BinPack/releases)
+# How To:
+List files that need to be packed as data array in a single header file or as a static libray. Use minus sign (-) to list options, and equal sign (=) for edit options. Available options are:
 
-## Write Options:
+### Write Options:
 
 * `-hr` To pack all the data of provided files into a header file (.h). [default]
 
@@ -17,7 +17,7 @@ BinPack is a command line tool for C and C++ to statically pack binary data into
 * `-pn` Output native data to the console.
 
 
-## Mode Options:
+### Mode Options:
 
 * `-hx` Convert data to hexadecimal literals.
 
@@ -27,7 +27,7 @@ BinPack is a command line tool for C and C++ to statically pack binary data into
 
 * `-c` To compress the data. (see source code for more details on how to decompress it
 
-## Edit Options:
+### Edit Options:
 
 * `=out` write the output to a folder. Example: =out C:\Users\Desktop
 

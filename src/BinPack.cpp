@@ -170,7 +170,7 @@ struct FileWrite{
     void init(const char* name,std::ios_base::openmode mode){
         this->path = name; 
         os.open(name,mode);  
-        ASSERT(!os.good(), "Coudn't create: " <<"'" << name << "'. Path may not exist!");
+        ASSERT(!os.good(), "Coudn't create: " <<"'" << name << "'. Path may not exist!. ECODE: " << os.rdstate() );
     }
 }hrwrite, libWrite;
 
@@ -497,7 +497,7 @@ int main(int count, const char* args[]){
 
     //open lib file stream
     if(opFlags & op_libs){
-        libWrite.open(libf.c_str(),BIN_READ);
+        libWrite.open(libf.c_str(),BIN_WRITE);
         spec = LibGen::GetLibSec(opFlags & op_lib64 ? arc_x64:arc_x86);
         libWrite.write((char*)spec.p1,spec.s1);
     }

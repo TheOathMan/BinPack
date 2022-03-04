@@ -42,7 +42,7 @@ Use minus sign (-) to list options, and equal sign (=) for edit options. Availab
 EXAMPLE:
 > text.txt -j -hx -p
 This command will prin the data of 'text.txt' into the console(-p) in the form of hexadecimal(-hx),
- and justify(-j) will be applied to the test.
+and justify(-j) will be applied to the test.
 
 )";
     std::cout << help << '\n'; 
@@ -65,6 +65,7 @@ using padSize_t = uint;
 using RSTR = const char*;
 
 #define MAX_SIZE (~0u) 
+#define LINEPAD_SIZE 100 
 
 #define _FREE(x)        ( free(x))
 #define DR_2_C_P(x)     ((char*)(*x))
@@ -181,9 +182,9 @@ struct FileRead{
     std::ifstream st;
     std::ios_base::openmode m_mode;
     FileRead() : m_data(nullptr) {}
-    FileRead& operator=(const FileRead& rhs) { m_fnmae=rhs.m_fnmae; m_mode = rhs.m_mode;  init(m_fnmae,m_mode); return *this;  }
-    FileRead(RSTR fname,std::ios_base::openmode mode): m_fnmae(fname),m_mode(mode){init(m_fnmae,mode);}
-    void init(RSTR fname,std::ios_base::openmode mode){
+    FileRead& operator=(const FileRead& rhs) { m_fnmae=rhs.m_fnmae; m_mode = rhs.m_mode;  init(m_fnmae,m_mode,false); return *this;  }
+    FileRead(RSTR fname,std::ios_base::openmode mode,bool readonly=false): m_data(nullptr), m_fnmae(fname), m_mode(mode) {init(m_fnmae,mode,readonly);}
+    void init(RSTR fname,std::ios_base::openmode mode,bool readonly){
         if(st.is_open()) st.close();
         st.open(fname,mode);
         ASSERT(!st.good(), "Coudn't open " <<"'" << fname << "'");
@@ -191,14 +192,16 @@ struct FileRead{
         int s = st.tellg();
         ASSERT(!s, "File" << "'" << fname << "'" << " is empty");
         st.seekg(st.beg);
-        m_data = malloc(s);
-        st.read((char*)m_data,s);
+        if(!readonly){
+            m_data = malloc(s);
+            st.read((char*)m_data,s);
+            st.seekg(st.beg);
+        }
         m_size = s;
-        st.seekg(st.beg);
     }
     std::ifstream& operator()(){ return st; }
     ~FileRead() { if(st.is_open()) st.close(); }
-    void freedat(){ _FREE(m_data); }
+    void freedat(){ if(m_data) _FREE(m_data); }
 }frd,tocom,toucm;
 
 
@@ -293,10 +296,11 @@ namespace LibGen{
 void puts(std::ofstream& of,char c, int count){ for(int i =0; i < count; i++){of.put(c);} of.put('\n');  }
 bool _striseq(RSTR s1,RSTR s2){ for(;*s1;) if(tolower(*s1++)!=tolower(*s2++)) return false;  return *s1 == *s2;  }
 int striseq(RSTR s1,RSTR s2){ for(;*s1;) if((*s1++|32)!=(*s2++|32)) return 0; return *s1 == *s2;} // compre strings not case senstive
-int strrep(char* t,char cr,char rp) { int rep=0; for(;strchr(t,cr);) {++rep; char* p = strchr(t,cr); *p = rp;} return rep;  } 
-RSTR strffn(RSTR str, char extra = '/'){ RSTR p; for(p = str + strlen(str);  p >= str && *p != extra && *p != '/' && *p != '\\'; p-- ){}return p+1;} // get file name from path with extentions
+int strrep(char* t,char cr,char rp) { int rep=0; for(;strchr(t,cr);) {++rep; char* p = strchr(t,cr); *p = rp;} return rep;  } //replace char with char in a string
+RSTR strffn(RSTR str, char extra = '/'){ RSTR p; for(p = str + strlen(str);  p >= str && *p != extra && *p != '/' && *p != '\\'; p-- ){}return p+1;} // get file name from path with file extention
 RSTR strfn(char* fn){char* ps = strrchr(fn,'.'); *ps = '\0'; return strffn(fn);} // get file name from path
-std::string& strfn(RSTR fn){ static std::string sn; sn.clear(); sn = std::string(strffn(fn) ); sn.erase(sn.find_last_of('.')); return sn;} // get file name from path
+std::string& strfn(RSTR fn){ static std::string sn; sn.clear(); sn = std::string(strffn(fn) ); if(sn.find('.')!= std::string::npos) sn.erase(sn.find_last_of('.')); return sn;} // get file name from path
+void path2_c_fmt(char* ctr){strrep(&ctr[0],'.','_'); strrep(&ctr[0],' ','_');}
 
 void copy_file(const std::string& source,const std::string& target)
 {
@@ -350,9 +354,8 @@ const char* char2dec(uchar c,int opflags){
 template <typename T> 
 void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int op_flags,int jv=0){
     ASSERT(name.length()>65, "Upnormal file name length" ); //? limit the number of chars in name
-    strrep(&name[0],'.','_');
-    strrep(&name[0],' ','_');
-    static int PrevSize=0,calls=0;
+    path2_c_fmt(&name[0]);
+    static int PrevSize=0,calls=1;
     if(op_flags & op_libs ){
         if(!PrevSize)
             ofs << R"(extern "C" char const*  __LIB_DATA__();)" << "\n\n"; 
@@ -368,10 +371,10 @@ void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int o
     bool is_justify = op_flags & op_justify;
 
     if(!(op_flags & op_prints )){    
-        auto pos = ofs.tellp();
-        ofs.seekp(ofs.beg + calls*102 ); 
-        ofs << "extern const unsigned char BP_"<< name << "[" << std::to_string(size) << "];";
-        ofs.seekp(pos);
+        //auto pos = ofs.tellp();
+        //ofs.seekp(ofs.beg + calls*102 ); 
+        //ofs << "extern const unsigned char BP_"<< name << "[" << std::to_string(size) << "];";
+        //ofs.seekp(pos);
         ofs << "const unsigned char BP_" << name << "[" << std::to_string(size) << "] " << "= { \n";
     }
     for (size_t i = 0; i < size; i++)
@@ -384,7 +387,7 @@ void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int o
         if(i < size-1)
             ofs << (!(op_flags & op_printn) ? "," : " ") << (( ((i+1) % (is_hex ? 8*2+jv : is_bin ? 10+jv : 30+jv)) == 0) ? "\n" : "" );
         else if(!(op_flags & op_prints )) ofs << "}; \n\n";
-        else ofs << '\n';
+        else ofs << std::endl;
     }calls++;
 }
 
@@ -411,7 +414,7 @@ size_t totalfsize=0;
 std::string outputpath;
 int justifyval=0;
 
-void OnLibClose(){ 
+void OnLibWriteClose(){ 
     if(opFlags&op_lib32) 
         copy_file(outputpath+"libdata32.a",outputpath+"data32.lib");
     if(opFlags&op_lib64) 
@@ -421,7 +424,6 @@ void OnLibClose(){
 int main(int count, const char* args[]){
     if(count == 1) howto();
     
-
     for (size_t i = 1; i < count; i++)
     {
         if(args[i][0] == '-') options.push_back( {args[i],""}); else
@@ -435,7 +437,6 @@ int main(int count, const char* args[]){
                 options.push_back({p1,p2}); 
         } 
         else files.push_back(args[i]); 
-
     }
     
     for(auto && i: options){ 
@@ -475,25 +476,25 @@ int main(int count, const char* args[]){
             printf("File Decompressed at: %s", temop.c_str());
             continue;
         }
-
         ASSERT(true,"Option '" << i.cmd <<"' doesn't exist" );  
     }
     
     if( files.empty() && opFlags & (op_funcompress | op_fcompress | op_out) )
         exit(EXIT_SUCCESS); 
     
-
     if(files.empty()) ASSERT(true,"Coudn't find a file. Make sure the order is valid" ); //! should be bypassed in a single file com proc
 
     //default flag
     if( !(opFlags & op_writeops) ) opFlags |= op_header;
 
-    //if(!(opFlags&op_out))outputpath.clear();
-
     std::string headerf=outputpath+"Resources.h", libf = outputpath+(opFlags & op_lib64 ? "libdata64.a" : "libdata32.a");
     //open header file stream
-    if(!(opFlags & op_prints))
+    if(!(opFlags & op_prints)){
         hrwrite.open(headerf.c_str(),TXT_WRITE);
+        hrwrite() << "// auto-generated using BinPack. https://github.com/TheOathMan/BinPack\n"
+                  << "//IMPORTANT: You must #define BP_INSER_RESOURCES only once before including this header file " 
+                  << "in order to insert the data into the compilation process\n";
+    }
 
     //open lib file stream
     if(opFlags & op_libs){
@@ -502,10 +503,14 @@ int main(int count, const char* args[]){
         libWrite.write((char*)spec.p1,spec.s1);
     }
 
-    //start header file by reserve/define
+    //start header file 
     if(opFlags & op_header) {
-        for(auto&& n: files) {puts(hrwrite(),' ', 100);}
-        puts(hrwrite(),' ', 100); puts(hrwrite(),' ', 100);
+        for (auto&& i : files){
+            FileRead f(i,BIN_READ,true);
+            std::string sfn = strfn(i);
+            path2_c_fmt(&sfn[0]);
+            hrwrite() << "extern const unsigned char BP_"<< sfn << "[" << std::to_string(f.m_size) << "];" << std::endl;
+        }
         hrwrite() << "#ifdef BP_INSER_RESOURCES\n";
     }
 
@@ -546,7 +551,7 @@ int main(int count, const char* args[]){
         char buf[10];
         ITOA(opFlags & op_lib64 ? S_SIZE_VAL:S_SIZE_VAL_32,buf,10); 
         F_PTR(TO_S_SIZE,buf,strlen(buf));
-        libWrite.close(OnLibClose);
+        libWrite.close(OnLibWriteClose);
         spec.freep();
     }
     hrwrite.close();

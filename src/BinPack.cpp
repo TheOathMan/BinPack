@@ -355,7 +355,7 @@ template <typename T>
 void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int op_flags,int jv=0){
     ASSERT(name.length()>65, "Upnormal file name length" ); //? limit the number of chars in name
     path2_c_fmt(&name[0]);
-    static int PrevSize=0,calls=1;
+    static int PrevSize=0;
     if(op_flags & op_libs ){
         if(!PrevSize)
             ofs << R"(extern "C" char const*  __LIB_DATA__();)" << "\n\n"; 
@@ -370,13 +370,9 @@ void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int o
     bool is_bin     = op_flags & op_bin;
     bool is_justify = op_flags & op_justify;
 
-    if(!(op_flags & op_prints )){    
-        //auto pos = ofs.tellp();
-        //ofs.seekp(ofs.beg + calls*102 ); 
-        //ofs << "extern const unsigned char BP_"<< name << "[" << std::to_string(size) << "];";
-        //ofs.seekp(pos);
+    if(!(op_flags & op_prints ))  
         ofs << "const unsigned char BP_" << name << "[" << std::to_string(size) << "] " << "= { \n";
-    }
+    
     for (size_t i = 0; i < size; i++)
     {
         int value = ((uchar*)data)[i];
@@ -388,7 +384,7 @@ void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int o
             ofs << (!(op_flags & op_printn) ? "," : " ") << (( ((i+1) % (is_hex ? 8*2+jv : is_bin ? 10+jv : 30+jv)) == 0) ? "\n" : "" );
         else if(!(op_flags & op_prints )) ofs << "}; \n\n";
         else ofs << std::endl;
-    }calls++;
+    }
 }
 
 // Ignore previous conflicting options 

@@ -17,9 +17,8 @@ Use minus sign (-) to list options, and equal sign (=) for edit options. Availab
 
 --Write Options:
   -hr   To pack all the data of provided files into a header file (.h). [default]
-  -l    To pack all the data of provided files into a 64 bit library.
-  -l64  To pack all the data of provided files into a 64 bit library.
-  -l32  To pack all the data of provided files into a 32 bit library.
+  -l64  To pack all the data of provided files into a 64 bit static library.
+  -l32  To pack all the data of provided files into a 32 bit static library.
   -p    Output data to the console.
   -pn   Output data to the console natively. (strip c++ integer-suffix and comma)
   -pc   Output data to the console as Ascll characters.
@@ -40,10 +39,16 @@ Use minus sign (-) to list options, and equal sign (=) for edit options. Availab
 *Files and options can be listed at any order. 
 *Edit Options and their values must be seperated by a space as in [EDIT OPTION] [VALUE].    
 
-EXAMPLE:
+EXAMPLE1:
 > text.txt -j -hx -p
 This command will prin the data of 'text.txt' into the console(-p) in the form of hexadecimal(-hx),
 and justify(-j) will be applied to the test.
+
+EXAMPLE2:
+> text.txt data.bin -l64
+This command will pack the binary data of 'text.txt' and 'data.bin' into a static library file (.lib/.a) 
+which then will be outputted along with a header file that contain pointers to each data within that precompiled binary pachage.
+
 
 )";
     std::cout << help << '\n'; 

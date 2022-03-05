@@ -8,9 +8,9 @@ List files that need to be packed as data array in a single header file or as a 
 
 * `-hr` To pack all the data of provided files into a header file (.h). [default]
 
-* `-l64` To pack all the data of provided files into a 64 bit library.
+* `-l64` To pack all the data of provided files into a 64 bit static library.
 
-* `-l32` To pack all the data of provided files into a 32 bit library.
+* `-l32` To pack all the data of provided files into a 32 bit static library.
 
 * `-p` Output data to the console.
 
@@ -33,7 +33,7 @@ List files that need to be packed as data array in a single header file or as a 
 
 * `=out` write the output to a folder. Example: =out C:\Users\Desktop
 
-* `=jl` Edit the justify level. Example: =jl 2
+* `=jl` Edit the justify level end line level. Example: =jl 2
 
 * `=cmf` compress a file.
 
@@ -48,14 +48,14 @@ text.txt -j -hx -p
 ```
 
 This command will output the data of 'text.txt' into the console(-p) in the form of hexadecimal(-hx),
-and justify(-j) will be applied to the text.
+and justify(-j) will be applied to the output.
 
 ### Example 2:
 ```
-text.txt text2.txt -l64
+text.txt data.bin -l64
 ```
 
-This command will pack the data of 'text.txt' and 'text2.txt' into a library file (.lib/.a), that will be outputted along with header file that contain pointers to each data.
+This command will pack the binary data of 'text.txt' and 'data.bin' into a static library file (.lib/.a) which then will be outputted along with a header file that contain pointers to each data within that precompiled binary pachage.
 
 # License
 [Unlicense](https://unlicense.org/) public domian. 

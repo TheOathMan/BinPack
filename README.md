@@ -14,7 +14,9 @@ List files that need to be packed as data array in a single header file or as a 
 
 * `-p` Output data to the console.
 
-* `-pn` Output native data to the console.
+* `-pn` Output data to the console natively. (strip c++ integer-suffix and comma)
+
+* `-pc` Output data to the console as Ascll characters.
 
 
 ### Mode Options:

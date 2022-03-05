@@ -21,11 +21,12 @@ Use minus sign (-) to list options, and equal sign (=) for edit options. Availab
   -l64  To pack all the data of provided files into a 64 bit library.
   -l32  To pack all the data of provided files into a 32 bit library.
   -p    Output data to the console.
-  -pn   Output native data to the console.
+  -pn   Output data to the console natively. (strip c++ integer-suffix and comma)
+  -pc   Output data to the console as Ascll characters.
 
 --Edit Options:
   =out  <FOLDER> write the output to a folder. Example: =out C:\Users\Desktop 
-  =jl   <NUMBER> Edit the justify level. Example: =jl 2 
+  =jl   <NUMBER> Edit the justify level or end line level. Example: =jl 2 
   =cmf  <FILE> compress a file.
   =ucf  <FILE> decompress a file.
 
@@ -77,15 +78,15 @@ using RSTR = const char*;
 
 
 #if  defined(__MINGW64__) || defined(__GNUC__)
-#define ITOA(x,y,z) itoa(x,y,z)
-#define STRWR(x) strlwr(x)
-#define POPEN(x,y) popen(x,y)
-#define PCLOSE(x) pclose(x)
+#define ITOA(value,buff,rx) itoa(value,buff,rx)
+#define STRWR(value) strlwr(value)
+#define POPEN(value,buff) popen(value,buff)
+#define PCLOSE(value) pclose(value)
 #elif defined(_WIN32)
-#define ITOA(x,y,z) _itoa(x,y,z)
-#define STRWR(x) _strlwr(x)
-#define POPEN(x,y) _popen(x,y)
-#define PCLOSE(x) _pclose(x)
+#define ITOA(value,buff,rx) _itoa(value,buff,rx)
+#define STRWR(value) _strlwr(value)
+#define POPEN(value,buff) _popen(value,buff)
+#define PCLOSE(value) _pclose(value)
 #endif
 
 enum {arc_x86,arc_x64}; // libs architecture
@@ -98,20 +99,21 @@ enum opt_flags : uint {
     op_lib64      = 1 << 2,  // write data into a 64 library.
     op_print      = 1 << 3,  // write data into the console.
     op_printn     = 1 << 4,  // write data natively  into the console.
+    op_printc     = 1 << 5,  // write data natively  into the console.
     op_libs       = op_lib64  | op_lib32,
-    op_prints     = op_printn | op_print,
-    op_writeops   = op_printn | op_print | op_lib64 | op_lib32 | op_header,
+    op_prints     = op_printn | op_print | op_printc ,
+    op_writeops   = op_prints | op_lib64 | op_lib32 | op_header,
     
-    op_bin        = 1 << 5,  // data array as binery.
-    op_hex        = 1 << 6,  // data array as hexadacimal.
-    op_compressed = 1 << 7,  // compress option (using miniz.h).
-    op_justify    = 1 << 8,  // align data array or apply (justify).
+    op_bin        = 1 << 6,  // data array as binery.
+    op_hex        = 1 << 7,  // data array as hexadacimal.
+    op_compressed = 1 << 8,  // compress option (using miniz.h).
+    op_justify    = 1 << 9,  // align data array or apply (justify).
     op_mods       = op_bin | op_hex | op_justify,
 
-    op_out        = 1 << 9,  // output path to write to.
-    op_jl         = 1 << 10, 
-    op_fcompress  = 1 << 11, 
-    op_funcompress = 1 << 12  
+    op_out        = 1 << 10,  // output path to write to.
+    op_jl         = 1 << 11, 
+    op_fcompress  = 1 << 12, 
+    op_funcompress = 1 << 13  
 };
 
 struct ComProc{
@@ -347,7 +349,6 @@ const char* char2dec(uchar c,int opflags){
     if(opflags & op_justify) 
         strcat(str_buffer,s + strlen(tempbuf));  
     strcat(str_buffer,tempbuf);
-    
     return str_buffer; 
 }
 
@@ -366,6 +367,7 @@ void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int o
         return;
     }
     
+    bool is_ascll   = op_flags & op_printc;
     bool is_hex     = op_flags & op_hex;
     bool is_bin     = op_flags & op_bin;
     bool is_justify = op_flags & op_justify;
@@ -375,10 +377,13 @@ void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int o
     
     for (size_t i = 0; i < size; i++)
     {
+
+         
         int value = ((uchar*)data)[i];
-        if(is_hex) ofs << char2Hex(value,op_flags); else
-        if(is_bin) ofs << char2bin(value,op_flags); else 
-                   ofs << char2dec(value,op_flags); 
+        if(is_ascll){ofs << (isprint(value) ? (char)value : ' '); op_flags |= op_printn;   }else
+        if(is_hex)   ofs << char2Hex(value,op_flags); else
+        if(is_bin)   ofs << char2bin(value,op_flags); else 
+                     ofs << char2dec(value,op_flags); 
 
         if(i < size-1)
             ofs << (!(op_flags & op_printn) ? "," : " ") << (( ((i+1) % (is_hex ? 8*2+jv : is_bin ? 10+jv : 30+jv)) == 0) ? "\n" : "" );
@@ -397,7 +402,7 @@ void IgnoreFlags(RSTR s,int& opflag, int conflicting_flags)
         }
     };
     xclude("l32",op_lib32); xclude("l64",op_lib64); xclude("p",op_print); xclude("pn",op_printn); xclude("out",op_out);
-    xclude("j",op_justify); xclude("bn",op_bin);    xclude("hx",op_hex);  xclude("hr",op_header); 
+    xclude("j",op_justify); xclude("bn",op_bin);    xclude("hx",op_hex);  xclude("hr",op_header); xclude("pc",op_printc);
 }
 
 int opFlags = 0;
@@ -446,8 +451,9 @@ int main(int count, const char* args[]){
         if(add(op_lib32,     "l32" ,op_print | op_printn | op_justify | op_hex  | op_bin | op_lib64 | op_header)){continue;}
         if(add(op_lib64,     "l64" ,op_print | op_printn | op_justify | op_hex  | op_bin | op_lib32 | op_header)){continue;}
 
-        if(add(op_printn,    "pn"  ,op_print | op_lib32  | op_lib64   | op_out  | op_header)){continue;}
-        if(add(op_print,     "p"   ,op_lib32 | op_lib64  | op_printn  | op_out  | op_header)){continue;}
+        if(add(op_printn,    "pn"  ,op_libs  | op_print  | op_printc  | op_out  | op_header)){continue;}
+        if(add(op_print,     "p"   ,op_libs  | op_printn | op_printc  | op_out  | op_header)){continue;}
+        if(add(op_printc,    "pc"  ,op_libs  | op_printn | op_print   | op_out  | op_header | op_mods)){continue;}
         //edit options
         if(add(op_out,       "out" ,op_prints)){ outputpath = std::string(v).append("\\"); continue;}
         if(add(op_jl,        "jl"  ,op_none)){if(!sscanf(v, "%i", &justifyval)) ASSERT(true,"Number expected for editing justify level" );  continue;}

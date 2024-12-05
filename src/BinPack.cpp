@@ -47,7 +47,7 @@ and justify(-j) will be applied to the test.
 EXAMPLE2:
 > text.txt data.bin -l64
 This command will pack the binary data of 'text.txt' and 'data.bin' into a static library file (.lib/.a) 
-which then will be outputted along with a header file that contain pointers to each data within that precompiled binary pachage.
+which then will be outputted along with a header file that contain pointers to each data within that precompiled binary package.
 
 
 )";
@@ -82,17 +82,37 @@ using RSTR = const char*;
 #define BIN_READ  std::ios::in | std::ios::binary
 
 
-#if  defined(__MINGW64__) || defined(__GNUC__)
+#if defined(__APPLE__) || defined(__linux__)
+#include <unistd.h>
+#include <sys/stat.h>
+#define PATH_SEPARATOR '/'
+#elif defined(_WIN32)
+#define _CRT_SECURE_NO_WARNINGS 1
+#define PATH_SEPARATOR '\\'
+#endif
+
+
+#if defined(__APPLE__) || defined(__linux__)
+#include <cstring>
+#include <cstdlib>
+#define ITOA(value, buff, rx) snprintf(buff, sizeof(buff), "%d", value)
+#define STRWR(value) std::transform(value, value + strlen(value), value, ::tolower)
+#define POPEN(value, buff) popen(value, buff)
+#define PCLOSE(value) pclose(value)
+#elif  defined(__MINGW64__) || defined(__GNUC__)
 #define ITOA(value,buff,rx) itoa(value,buff,rx)
+// #define ITOA(value, buff, rx) snprintf(buff, sizeof(buff), "%d", value)
 #define STRWR(value) strlwr(value)
 #define POPEN(value,buff) popen(value,buff)
 #define PCLOSE(value) pclose(value)
 #elif defined(_WIN32)
-#define ITOA(value,buff,rx) _itoa(value,buff,rx)
+#define _CRT_SECURE_NO_WARNINGS 1
+#define ITOA(value, buff, rx) _itoa(value, buff, rx)
 #define STRWR(value) _strlwr(value)
-#define POPEN(value,buff) _popen(value,buff)
+#define POPEN(value, buff) _popen(value, buff)
 #define PCLOSE(value) _pclose(value)
 #endif
+
 
 enum {arc_x86,arc_x64}; // libs architecture
 
@@ -300,14 +320,26 @@ namespace LibGen{
     }
 }
 
+void path2_c_fmt(std::string& input) {
+    // Define the set of illegal characters as a string
+    const std::string illegalChars = "/\\.*:?\"<>| ";
+
+    // Iterate over each character in the input string
+    for (size_t i = 0; i < input.size(); ++i) {
+        // If the character is in the illegalChars string, replace it with '_'
+        if (illegalChars.find(input[i]) != std::string::npos) {
+            input[i] = '_';
+        }
+    }
+}
+
 void puts(std::ofstream& of,char c, int count){ for(int i =0; i < count; i++){of.put(c);} of.put('\n');  }
 bool _striseq(RSTR s1,RSTR s2){ for(;*s1;) if(tolower(*s1++)!=tolower(*s2++)) return false;  return *s1 == *s2;  }
 int striseq(RSTR s1,RSTR s2){ for(;*s1;) if((*s1++|32)!=(*s2++|32)) return 0; return *s1 == *s2;} // compre strings not case senstive
 int strrep(char* t,char cr,char rp) { int rep=0; for(;strchr(t,cr);) {++rep; char* p = strchr(t,cr); *p = rp;} return rep;  } //replace char with char in a string
-RSTR strffn(RSTR str, char extra = '/'){ RSTR p; for(p = str + strlen(str);  p >= str && *p != extra && *p != '/' && *p != '\\'; p-- ){}return p+1;} // get file name from path with file extention
+RSTR strffn(RSTR str, char extra = PATH_SEPARATOR){ RSTR p; for(p = str + strlen(str);  p >= str && *p != extra && *p != PATH_SEPARATOR; p-- ){}return p+1;} // get file name from path with file extention
 RSTR strfn(char* fn){char* ps = strrchr(fn,'.'); *ps = '\0'; return strffn(fn);} // get file name from path
 std::string& strfn(RSTR fn){ static std::string sn; sn.clear(); sn = std::string(strffn(fn) ); if(sn.find('.')!= std::string::npos) sn.erase(sn.find_last_of('.')); return sn;} // get file name from path
-void path2_c_fmt(char* ctr){strrep(&ctr[0],'.','_'); strrep(&ctr[0],' ','_');}
 
 void copy_file(const std::string& source,const std::string& target)
 {
@@ -360,7 +392,8 @@ const char* char2dec(uchar c,int opflags){
 template <typename T> 
 void PackData(T& ofs, void* data, const padSize_t& size, std::string& name,int op_flags,int jv=0){
     ASSERT(name.length()>65, "Upnormal file name length" ); //? limit the number of chars in name
-    path2_c_fmt(&name[0]);
+    path2_c_fmt(name);
+    // removeIllegalChars(name.data());
     static int PrevSize=0;
     if(op_flags & op_libs ){
         if(!PrevSize)
@@ -428,6 +461,11 @@ void OnLibWriteClose(){
 }
 
 int main(int count, const char* args[]){
+    // char filename[] = "inva\\lid/fi*le:name?.txt";
+    // removeIllegalChars(filename);
+    // printf("%s\n",filename);
+
+
     if(count == 1) howto();
     
     for (size_t i = 1; i < count; i++)
@@ -460,7 +498,7 @@ int main(int count, const char* args[]){
         if(add(op_print,     "p"   ,op_libs  | op_printn | op_printc  | op_out  | op_header)){continue;}
         if(add(op_printc,    "pc"  ,op_libs  | op_printn | op_print   | op_out  | op_header | op_mods)){continue;}
         //edit options
-        if(add(op_out,       "out" ,op_prints)){ outputpath = std::string(v).append("\\"); continue;}
+        if(add(op_out,       "out" ,op_prints)){ outputpath = std::string(v).append(1, PATH_SEPARATOR); continue;}
         if(add(op_jl,        "jl"  ,op_none)){if(!sscanf(v, "%i", &justifyval)) ASSERT(true,"Number expected for editing justify level" );  continue;}
 
         if(add(op_fcompress,  "cmf" ,op_none)){ 
@@ -515,7 +553,7 @@ int main(int count, const char* args[]){
         for (auto&& i : files){
             FileRead f(i,BIN_READ,true);
             std::string sfn = strfn(i);
-            path2_c_fmt(&sfn[0]);
+            path2_c_fmt(sfn);
             hrwrite() << "extern const unsigned char BP_"<< sfn << "[" << std::to_string(f.m_size) << "];" << std::endl;
         }
         hrwrite() << "#ifdef BP_INSER_RESOURCES\n";
